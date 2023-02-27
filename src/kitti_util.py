@@ -24,7 +24,7 @@ class Object3d(object):
         self.xmax = data[6] # right
         self.ymax = data[7] # bottom
         self.box2d = np.array([self.xmin,self.ymin,self.xmax,self.ymax])
-        
+
         # extract 3d bounding box information
         self.h = data[8] # box height
         self.w = data[9] # box width
@@ -83,7 +83,7 @@ class Calibration(object):
         else:
             calibs = self.read_calib_file(calib_filepath)
         # Projection matrix from rect camera coord to image2 coord
-        self.P = calibs['P2'] 
+        self.P = calibs['P2']
         self.P = np.reshape(self.P, [3,4])
         # Rigid transform from Velodyne coord to reference camera coord
         self.V2C = calibs['Tr_velo_to_cam']
@@ -98,7 +98,7 @@ class Calibration(object):
         self.c_v = self.P[1,2]
         self.f_u = self.P[0,0]
         self.f_v = self.P[1,1]
-        self.b_x = self.P[0,3]/(-self.f_u) # relative 
+        self.b_x = self.P[0,3]/(-self.f_u) # relative
         self.b_y = self.P[1,3]/(-self.f_v)
 
     def read_calib_file(self, filepath):
@@ -119,7 +119,7 @@ class Calibration(object):
                     pass
 
         return data
-    
+
     def read_calib_from_video(self, calib_root_dir):
         ''' Read calibration for camera 2 from video calib files.
             there are calib_cam_to_cam and calib_velo_to_cam under the calib_root_dir
@@ -142,10 +142,10 @@ class Calibration(object):
         n = pts_3d.shape[0]
         pts_3d_hom = np.hstack((pts_3d, np.ones((n,1))))
         return pts_3d_hom
- 
-    # =========================== 
-    # ------- 3d to 3d ---------- 
-    # =========================== 
+
+    # ===========================
+    # ------- 3d to 3d ----------
+    # ===========================
     def project_velo_to_ref(self, pts_3d_velo):
         pts_3d_velo = self.cart2hom(pts_3d_velo) # nx4
         return np.dot(pts_3d_velo, np.transpose(self.V2C))
@@ -157,15 +157,15 @@ class Calibration(object):
     def project_rect_to_ref(self, pts_3d_rect):
         ''' Input and Output are nx3 points '''
         return np.transpose(np.dot(np.linalg.inv(self.R0), np.transpose(pts_3d_rect)))
-    
+
     def project_ref_to_rect(self, pts_3d_ref):
         ''' Input and Output are nx3 points '''
         return np.transpose(np.dot(self.R0, np.transpose(pts_3d_ref)))
- 
+
     def project_rect_to_velo(self, pts_3d_rect):
         ''' Input: nx3 points in rect camera coord.
             Output: nx3 points in velodyne coord.
-        ''' 
+        '''
         pts_3d_ref = self.project_rect_to_ref(pts_3d_rect)
         return self.project_ref_to_velo(pts_3d_ref)
 
@@ -173,9 +173,9 @@ class Calibration(object):
         pts_3d_ref = self.project_velo_to_ref(pts_3d_velo)
         return self.project_ref_to_rect(pts_3d_ref)
 
-    # =========================== 
-    # ------- 3d to 2d ---------- 
-    # =========================== 
+    # ===========================
+    # ------- 3d to 2d ----------
+    # ===========================
     def project_rect_to_image(self, pts_3d_rect):
         ''' Input: nx3 points in rect camera coord.
             Output: nx2 points in image2 coord.
@@ -185,7 +185,7 @@ class Calibration(object):
         pts_2d[:,0] /= pts_2d[:,2]
         pts_2d[:,1] /= pts_2d[:,2]
         return pts_2d[:,0:2]
-    
+
     def project_velo_to_image(self, pts_3d_velo):
         ''' Input: nx3 points in velodyne coord.
             Output: nx2 points in image2 coord.
@@ -193,9 +193,9 @@ class Calibration(object):
         pts_3d_rect = self.project_velo_to_rect(pts_3d_velo)
         return self.project_rect_to_image(pts_3d_rect)
 
-    # =========================== 
-    # ------- 2d to 3d ---------- 
-    # =========================== 
+    # ===========================
+    # ------- 2d to 3d ----------
+    # ===========================
     def project_image_to_rect(self, uv_depth):
         ''' Input: nx3 first two channels are uv, 3rd channel
                    is depth in rect camera coord.
@@ -214,7 +214,7 @@ class Calibration(object):
         pts_3d_rect = self.project_image_to_rect(uv_depth)
         return self.project_rect_to_velo(pts_3d_rect)
 
- 
+
 def rotx(t):
     ''' 3D Rotation about the x-axis. '''
     c = np.cos(t)
@@ -301,20 +301,20 @@ def compute_box_3d(obj, P=None):
             corners_2d: (8,2) array in left image coord.
             corners_3d: (8,3) array in in rect camera coord.
     '''
-   
+
     # compute rotational matrix around yaw axis
-    R = roty(obj.ry)    
+    R = roty(obj.ry)
 
     # 3d bounding box dimensions
     l = obj.l;
     w = obj.w;
     h = obj.h;
-    
+
     # 3d bounding box corners
     x_corners = [l/2,l/2,-l/2,-l/2,l/2,l/2,-l/2,-l/2];
     y_corners = [0,0,0,0,-h,-h,-h,-h];
     z_corners = [w/2,-w/2,-w/2,w/2,w/2,-w/2,-w/2,w/2];
-    
+
     # rotate and translate 3d bounding box
     corners_3d = np.dot(R, np.vstack([x_corners,y_corners,z_corners]))
     #print corners_3d.shape
@@ -324,12 +324,12 @@ def compute_box_3d(obj, P=None):
     if P is None:
         return np.transpose(corners_3d)
 
-    #print 'cornsers_3d: ', corners_3d 
+    #print 'cornsers_3d: ', corners_3d
     # only draw 3d bounding box for objs in front of the camera
     if np.any(corners_3d[2,:]<0.1):
         corners_2d = None
         return corners_2d, np.transpose(corners_3d)
-    
+
     # project the 3d bounding box into the image plane
     corners_2d = project_to_image(np.transpose(corners_3d), P);
     #print 'corners_2d: ', corners_2d
@@ -343,24 +343,24 @@ def compute_orientation_3d(obj, P):
             orientation_2d: (2,2) array in left image coord.
             orientation_3d: (2,3) array in in rect camera coord.
     '''
-    
+
     # compute rotational matrix around yaw axis
     R = roty(obj.ry)
-   
+
     # orientation in object coordinate system
     orientation_3d = np.array([[0.0, obj.l],[0,0],[0,0]])
-    
+
     # rotate and translate in camera coordinate system, project in image
     orientation_3d = np.dot(R, orientation_3d)
     orientation_3d[0,:] = orientation_3d[0,:] + obj.t[0]
     orientation_3d[1,:] = orientation_3d[1,:] + obj.t[1]
     orientation_3d[2,:] = orientation_3d[2,:] + obj.t[2]
-    
+
     # vector behind image plane?
     if np.any(orientation_3d[2,:]<0.1):
       orientation_2d = None
       return orientation_2d, np.transpose(orientation_3d)
-    
+
     # project orientation into the image plane
     orientation_2d = project_to_image(np.transpose(orientation_3d), P);
     return orientation_2d, np.transpose(orientation_3d)
@@ -396,17 +396,17 @@ def draw_projected_box3d(image, qs, color=(255,255,255), thickness=2):
 
 def visualize_offscreen(pts, boxes=None, fig=None, bgcolor=(0, 0, 0), fgcolor=(1.0, 1.0, 1.0),
                   show_intensity=False, size=(1000, 1000), save_path='test.png'):
-    
+
     import numpy as np
     from pyvirtualdisplay import Display
-   
+
 
     display = Display(visible=False, size=(1280, 1024))
     display.start()
 
     import mayavi.mlab as mlab
     mlab.options.offscreen = True
-    
+
     if not isinstance(pts, np.ndarray):
         pts = pts.cpu().numpy()
     if fig is None:
@@ -420,14 +420,14 @@ def visualize_offscreen(pts, boxes=None, fig=None, bgcolor=(0, 0, 0), fgcolor=(1
                           colormap='gnuplot', scale_factor=1, figure=fig)
 
     mlab.points3d(0, 0, 0, color=(1, 0, 0), mode='cube', scale_factor=0.5)
-    
+
     if boxes is not None:
         num = len(boxes)
         for n in range(num):
             b = boxes[n]
 
             color=(1,0,0)
-            
+
 
             for k in range(0,4):
                 #http://docs.enthought.com/mayavi/mayavi/auto/mlab_helper_functions.html
@@ -443,7 +443,7 @@ def visualize_offscreen(pts, boxes=None, fig=None, bgcolor=(0, 0, 0), fgcolor=(1
 
 
     mlab.view(azimuth=-90, elevation=160, focalpoint=[0, 0, 5], distance=30.0, figure=fig)
-    
+
     mlab.savefig(save_path)
     display.stop()
     return fig
@@ -485,9 +485,9 @@ def rotate_yaw_torch(p, yaw):
     return torch.cat([p_x, p_y, p_z], dim=-1)
 
 def world2object(pts, obj, use_dir=False):
-    
+
     pose, dim, theta_y = obj[:, :3], obj[:, 3:6], obj[:, 6:]
-    
+
     pose_w = pose.copy()
     pose_w[:, 1] -= dim[:, 1] / 2
 
@@ -503,19 +503,19 @@ def world2object(pts, obj, use_dir=False):
     N_obj = theta_y.shape[1]
 
     pts_w = np.repeat(pts[:, np.newaxis, ...], N_obj, axis=1)
-   
+
     if use_dir:
         # for dir, no need to shift
         pts_o = rotate_yaw(pts_w, theta_y)
     else:
         pts_o = rotate_yaw(pts_w, theta_y) + t_w_o
-   
+
     # Scale rays_o_v and rays_d_v for box [[-1.,1], [-1.,1], [-1.,1]]
     pts_o = pts_o / (dim / 2 + 1e-9)
-    
+
     if use_dir:
         pts_o = pts_o / np.linalg.norm(pts_o, axis=-1, keepdims=True)
-   
+
     return pts_o
 
 
@@ -536,7 +536,7 @@ def object2world(pts, objs):
 
     pts_w = pts * (dim / 2 + 1e-9)
     t_w_o = rotate_yaw_torch(-pose_w, theta_y)
-    pts_w = rotate_yaw_torch(pts_w - t_w_o, -theta_y) 
+    pts_w = rotate_yaw_torch(pts_w - t_w_o, -theta_y)
 
     return pts_w
 
@@ -577,10 +577,11 @@ def ray_box_intersection(ray_o, ray_d, aabb_min=None, aabb_max=None):
 
     # Check if rays are inside boxes
     intersection_map = t_far > t_near # np.where(t_far > t_near)[0]
-    
+
     # Check that boxes are in front of the ray origin
     positive_far = (t_far * intersection_map) > 0
     intersection_map = np.logical_and(intersection_map, positive_far)
+
 
     if not intersection_map.shape[0] == 0:
         z_ray_in = t_near[intersection_map]
@@ -623,7 +624,7 @@ def unproj_map(width, height, f, c=None, device="cpu"):
     unproj /= torch.norm(unproj, dim=-1).unsqueeze(-1)
     return unproj
 
-    
+
 def gen_rays(poses, width, height, focal, z_near, z_far, c=None, ndc=False):
     """
     Generate camera rays
@@ -640,7 +641,7 @@ def gen_rays(poses, width, height, focal, z_near, z_far, c=None, ndc=False):
     cam_raydir = torch.matmul(
         poses[:, None, None, :3, :3], cam_unproj_map.unsqueeze(-1)
     )[:, :, :, :, 0]
-    
+
 
     cam_nears = (
         torch.tensor(z_near, device=device)
@@ -656,5 +657,5 @@ def gen_rays(poses, width, height, focal, z_near, z_far, c=None, ndc=False):
         (cam_centers, cam_raydir, cam_nears, cam_fars), dim=-1
     )  # (B, H, W, 8)
 
-    
-    
+
+

@@ -30,15 +30,19 @@ cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # set threshold for this model
 cfg.MODEL.WEIGHTS = "detectron2://PointRend/InstanceSegmentation/pointrend_rcnn_R_50_FPN_3x_coco/164955410/model_final_edd263.pkl"
 predictor = DefaultPredictor(cfg)
 
+DATA_DIR = '/data/liqi//KITTI'
+# LABEL_DIR = 'label_2'
+# OUT_DIR = 'nerf'
+LABEL_DIR = 'pred_label_2'
+OUT_DIR = 'pred_nerf'
+
 class Prepare(torch.utils.data.Dataset):
 
     def __init__(self, ):
         super().__init__()
 
         self.ids = range(
-            len(os.listdir(
-            '/data0/billyhe/KITTI/training/label_2'))
-        )
+            len(os.listdir(f'{DATA_DIR}/training/{LABEL_DIR}')))
 
     def __len__(self):
         return len(self.ids)
@@ -46,9 +50,9 @@ class Prepare(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         id = self.ids[idx]
 
-        objs = kitti_util.read_label('/data0/billyhe/KITTI/training/label_2/%06d.txt' % id)
-        img = cv2.imread('/data0/billyhe/KITTI/training/image_2/%06d.png' % id)
-    
+        objs = kitti_util.read_label(f'{DATA_DIR}/training/{LABEL_DIR}/%06d.txt' % id)
+        img = cv2.imread(f'{DATA_DIR}/training/image_2/%06d.png' % id)
+
         insts = predictor(img)["instances"]
         insts = insts[insts.pred_classes == 2] # 2 for ca
         ious = structures.pairwise_iou(
@@ -58,9 +62,8 @@ class Prepare(torch.utils.data.Dataset):
 
         if ious.numel() == 0:
             return 1
-        
-        for i, obj in enumerate(objs):
 
+        for i, obj in enumerate(objs):
             if obj.type == 'DontCare':
                 continue
             if obj.t[2] > 50:
@@ -73,19 +76,18 @@ class Prepare(torch.utils.data.Dataset):
             rgb_gt = img[int(obj.ymin):int(obj.ymax), int(obj.xmin):int(obj.xmax), :]
             msk_gt = insts.pred_masks[j][int(obj.ymin):int(obj.ymax), int(obj.xmin):int(obj.xmax)]
 
-            cv2.imwrite('/data0/billyhe/KITTI/training/nerf/%06d_%02d_patch.png' % (id, i), rgb_gt)
-            cv2.imwrite('/data0/billyhe/KITTI/training/nerf/%06d_%02d_mask.png' % (id, i), np.stack([msk_gt.cpu()*255]*3, -1))  
+            cv2.imwrite(f'{DATA_DIR}/training/{OUT_DIR}/%06d_%02d_patch.png' % (id, i), rgb_gt)
+            cv2.imwrite(f'{DATA_DIR}/training/{OUT_DIR}/%06d_%02d_mask.png' % (id, i), np.stack([msk_gt.cpu()*255]*3, -1))
             anno = [obj.xmin, obj.xmax, obj.ymin, obj.ymax] + list(obj.t) + list(obj.dim) + [obj.ry]
             anno = [str(x) for x in anno]
-            with open('/data0/billyhe/KITTI/training/nerf/%06d_%02d_label.txt' % (id, i), 'w') as f:
+            with open(f'{DATA_DIR}/training/{OUT_DIR}/%06d_%02d_label.txt' % (id, i), 'w') as f:
                 f.writelines(' '.join(anno))
-            
-            
+
+
         return 1
 
 
-if __name__ == "__main__":  
-
+if __name__ == "__main__":
 
     loader = torch.utils.data.DataLoader(
             Prepare(),

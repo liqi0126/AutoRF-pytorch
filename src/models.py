@@ -36,19 +36,19 @@ class ImageEncoder(nn.Module):
         return F.max_pool2d(latents, kernel_size=latents.size()[2:])[:, :, 0, 0]
 
 class Decoder(nn.Module):
-   
-    def __init__(self, 
-                 hidden_size=128, 
-                 n_blocks=8, 
+
+    def __init__(self,
+                 hidden_size=128,
+                 n_blocks=8,
                  n_blocks_view=1,
-                 skips=[4], 
-                 n_freq_posenc=10, 
-                 n_freq_posenc_views=4, 
-                 z_dim=128, 
+                 skips=[4],
+                 n_freq_posenc=10,
+                 n_freq_posenc_views=4,
+                 z_dim=128,
                  rgb_out_dim=3
     ):
         super().__init__()
- 
+
         self.n_freq_posenc = n_freq_posenc
         self.n_freq_posenc_views = n_freq_posenc_views
         self.skips = skips
@@ -57,21 +57,21 @@ class Decoder(nn.Module):
         self.n_blocks = n_blocks
         self.n_blocks_view = n_blocks_view
 
-       
+
         dim_embed = 3 * self.n_freq_posenc * 2
         dim_embed_view = 3 * self.n_freq_posenc_views * 2
 
         # Density Prediction Layers
         self.fc_in = nn.Linear(dim_embed, hidden_size)
-        
+
         if z_dim > 0:
             self.fc_z = nn.Linear(z_dim, hidden_size)
-        
+
         self.blocks = nn.ModuleList([
             nn.Linear(hidden_size, hidden_size) for i in range(n_blocks - 1)
         ])
         n_skips = sum([i in skips for i in range(n_blocks - 1)])
-        
+
         if n_skips > 0:
             self.fc_z_skips = nn.ModuleList(
                 [nn.Linear(z_dim, hidden_size) for i in range(n_skips)]
@@ -79,7 +79,7 @@ class Decoder(nn.Module):
             self.fc_p_skips = nn.ModuleList([
                 nn.Linear(dim_embed, hidden_size) for i in range(n_skips)
             ])
-        
+
         self.sigma_out = nn.Linear(hidden_size, 1)
 
         # Feature Prediction Layers
@@ -87,16 +87,16 @@ class Decoder(nn.Module):
         self.feat_view = nn.Linear(hidden_size, hidden_size)
         self.fc_view = nn.Linear(dim_embed_view, hidden_size)
         self.feat_out = nn.Linear(hidden_size, rgb_out_dim)
-    
+
         self.blocks_view = nn.ModuleList(
             [nn.Linear(dim_embed_view + hidden_size, hidden_size) for _ in range(n_blocks_view - 1)]
         )
 
         self.fc_shape = nn.Sequential(nn.Linear(512, 128), nn.ReLU())
-        
+
         self.fc_app = nn.Sequential(nn.Linear(512, 128), nn.ReLU())
-        
-        
+
+
     def transform_points(self, p, views=False):
         L = self.n_freq_posenc_views if views else self.n_freq_posenc
         p_transformed = torch.cat([torch.cat(
@@ -106,18 +106,20 @@ class Decoder(nn.Module):
         return p_transformed
 
     def forward(self, p_in, ray_d, latent=None):
-        
+
+
         z_shape = self.fc_shape(latent)
         z_app = self.fc_app(latent)
 
         B, N, _ = p_in.shape
-        
+
+
         z_shape = z_shape[:, None, :].repeat(1, N, 1)
         z_app = z_app[:, None, :].repeat(1, N, 1)
 
         p = self.transform_points(p_in)
         net = self.fc_in(p)
-        
+
         if z_shape is not None:
             net = net + self.fc_z(z_shape)
 
@@ -134,8 +136,7 @@ class Decoder(nn.Module):
 
         net = self.feat_view(net)
         net = net + self.fc_z_view(z_app)
-        
-      
+
         ray_d = ray_d / torch.norm(ray_d, dim=-1, keepdim=True)
         ray_d = self.transform_points(ray_d, views=True)
         net = net + self.fc_view(ray_d)
@@ -146,18 +147,17 @@ class Decoder(nn.Module):
 
         feat_out = self.feat_out(net)
 
-    
         return feat_out, sigma_out
 
 
 class PixelNeRFNet(torch.nn.Module):
     def __init__(self,):
-        
+
         super().__init__()
-      
+
         self.encoder = ImageEncoder()
         self.decoder = Decoder()
-       
+
     def encode(self, images):
         # self.encoder.eval()
         # with torch.no_grad():
@@ -173,18 +173,12 @@ class PixelNeRFNet(torch.nn.Module):
         NS is number of input views
         :return (SB, B, 4) r g b sigma
         """
-       
+
+
         rgb, sigma = self.decoder(xyz, viewdirs, latent)
-       
+
         output_list = [torch.sigmoid(rgb), F.softplus(sigma)]
         output = torch.cat(output_list, dim=-1)
-        
+
         return output
-
-    
-
-
-
-
-
 
