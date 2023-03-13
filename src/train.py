@@ -267,7 +267,7 @@ if __name__ == "__main__":
     if args.demo:
         trainer.net.load_state_dict(torch.load(os.path.join(args.save_path,"200.ckpt")))
 
-        with imageio.get_writer(os.path.join(args.save_path, 'scene.gif'), mode='I', duration=0.5) as writer:
+        with imageio.get_writer(os.path.join(args.save_path, 'car.gif'), mode='I', duration=0.5) as writer:
             for z in [10,9,8,7,6,5,4,3,2,1,0,-1,-2,-3,-4,-5,-6]:
                 canvas = trainer.vis_scene(8, [0, 0, z])
                 canvas = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)

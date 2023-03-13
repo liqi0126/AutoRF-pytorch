@@ -166,6 +166,13 @@ class KITTI(torch.utils.data.Dataset):
 
         rois = torch.stack(rois)
 
+        rois = rois[None, 0]
+        objs = objs[None, 0]
+        # objs[0, 0] = 1
+        # objs[0, 1] = 1
+        # objs[0, 1] = 1
+        objs[0, -1] = -1.57
+
         # manipulate 3d boxes
         if manipulation is not None:
             objs = manipulate(objs, manipulation)
@@ -189,10 +196,6 @@ class KITTI(torch.utils.data.Dataset):
                rois, \
                torch.from_numpy( np.any(intersect, 1) ),\
                torch.FloatTensor(objs)
-
-
-
-
 
 
 def collate_lambda_train(batch, ray_batch_size=1024):
