@@ -1,6 +1,5 @@
 import torch
 
-
 class NeRFRenderer(torch.nn.Module):
 
 

@@ -13,7 +13,8 @@ from renderer import NeRFRenderer
 import torch
 import random
 
-from kitti import KITTI, collate_lambda_train, DATA_DIR
+from nuscenes import NuScenes, collate_lambda_train
+import nuscenes_util
 
 from functools import partial
 
@@ -23,16 +24,16 @@ import tqdm
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", type=int, default=12)
+    parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--num_workers", type=int, default=8)
-    parser.add_argument("--ray_batch_size", type=int, default=2048)
+    parser.add_argument("--ray_batch_size", type=int, default=2048*10)
     parser.add_argument("--print_interval", type=int, default=5)
     parser.add_argument("--vis_interval", type=int, default=100)
     parser.add_argument("--ckpt_interval", default=5, help='checkpoint interval (in epochs)')
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--epochs", type=float, default=1000000)
-    parser.add_argument("--save_path", type=str, default='output')
-    parser.add_argument("--viz_path", type=str, default='viz')
+    parser.add_argument("--save_path", type=str, default='output_nuscenes')
+    parser.add_argument("--viz_path", type=str, default='viz_nuscenes')
     parser.add_argument("--demo", action="store_true")
     return parser.parse_args()
 
@@ -42,7 +43,7 @@ def make_canvas(patches):
     hmax = max([p.shape[0] for p in patches]) + 10
     for p in patches:
         H, W, _ = p.shape
-        a = (hmax - H ) // 2
+        a = (hmax - H) // 2
         b = hmax - H - a
         pp = np.pad(p, ((a, b), (0, 0), (0, 0)))
         banner.append(pp)
@@ -84,25 +85,25 @@ class PixelNeRFTrainer():
             optimizer=self.optim, milestones=[100, 150], gamma=0.1
         )
 
-
-
     def train_step(self, data, is_train=True):
+        img_cnt, src_images, all_rays, all_rgb_gt, all_mask_gt = data
 
-        src_images, all_rays, all_rgb_gt, all_mask_gt = data
-
+        img_cnt = img_cnt.to(self.device)
         src_images = src_images.to(self.device)
         all_rays = all_rays.to(self.device)
         all_rgb_gt = all_rgb_gt.to(self.device)
         all_mask_gt = all_mask_gt.to(self.device)
 
-        latent = self.net.encode(src_images)
+        images = torch.cat([src_images[i, :img_cnt[i]] for i in range(len(img_cnt))])
+        latent = self.net.encode(images)
+        cum = torch.cat((torch.tensor([0]).to(img_cnt.device), torch.cumsum(img_cnt, 0)))
+        latent = torch.stack([latent[cum[i]:cum[i+1]].mean(0) for i in range(len(img_cnt))])
 
         render_dict = self.renderer(self.net, all_rays, latent)
 
         render_rgb = render_dict['rgb']
 
         intersect = render_dict['intersect']
-
 
         render_rgb = render_rgb[intersect, ...]
         all_rgb_gt = all_rgb_gt[intersect, ...]
@@ -119,7 +120,6 @@ class PixelNeRFTrainer():
 
     def vis_step(self, data):
         src_images, all_rays = data
-
 
         all_rays = all_rays.to(device)
         src_images = src_images.to(device)
@@ -205,6 +205,40 @@ class PixelNeRFTrainer():
 
             return canvas
 
+    def vis_car(self, idx):
+        rgbs = self.test_dataset.__getcar__(idx)
+
+        cam_pos = torch.eye(4)[None, ...]
+        cam_pos[:, 1, 1] = -1
+        cam_pos[:, 2, 2] = -1
+
+        render_rays = nuscenes_util.gen_rays(
+            cam_pos, 1600, 900,
+            torch.tensor([1250, 1250]), 0, np.inf,
+            torch.tensor([800, 450])
+        )[0].flatten(0,1).numpy()
+
+        ray_o = render_rays[:, :3]
+        ray_o[:, 0] = -1.
+        ray_o[:, 1] = -1.
+        ray_o[:, 2] = 1.
+        ray_d = render_rays[:, 3:6]
+
+        z_in, z_out, intersect = nuscenes_util.ray_box_intersection(ray_o, ray_d)
+        bounds =  np.ones((*ray_o.shape[:-1], 2)) * -1
+        bounds [intersect, 0] = z_in
+        bounds [intersect, 1] = z_out
+        all_rays = torch.cat([ray_o, ray_d, bounds])
+
+        for batch_rays in tqdm.tqdm(torch.split(valid_rays, self.args.batch_size)):
+
+
+        self.net.eval()
+        rgbs = rgbs.to(self.device)
+        with torch.no_grad():
+            latent = self.net.encode(rgbs).mean(0)
+
+
     def train(self):
 
         for epoch in range(self.num_epochs):
@@ -217,28 +251,7 @@ class PixelNeRFTrainer():
                 self.optim.zero_grad()
 
                 if batch % self.args.print_interval == 0:
-                    print("E", epoch,"B",batch, "loss", losses.item(),"lr", self.optim.param_groups[0]["lr"])
-
-                if batch % self.args.vis_interval == 0:
-                    idx = random.choice(range(len(self.test_dataset)))
-
-                    img, test_data, out_shape = self.test_dataset.__getviews__(idx)
-
-                    patches = [img]
-                    for d, hw in zip(test_data, out_shape):
-                        vis = self.vis_step(d)
-                        h, w = hw
-                        vis = vis[:h*w, :].reshape(h, w, 3).cpu()
-                        patches.append((vis.numpy() * 255).astype(np.uint8))
-
-                    canvas = make_canvas(patches)
-
-                    imageio.imwrite(
-                        os.path.join(
-                            self.args.save_path,"test.png",#"{:04}_{:04}_vis.png".format(epoch, batch),
-                        ), canvas)
-
-                batch += 1
+                    print("E", epoch, "B", batch, "loss", losses.item(),"lr", self.optim.param_groups[0]["lr"])
 
             if (epoch + 1) % self.args.ckpt_interval == 0:
                 torch.save(
@@ -263,32 +276,13 @@ if __name__ == "__main__":
 
     trainer = PixelNeRFTrainer(
         args, net, renderer,
-        KITTI('train.txt'),
-        KITTI('val.txt'),
+        NuScenes(),
+        NuScenes(),
         device
     )
 
-
     if args.demo:
-        trainer.net.load_state_dict(torch.load(os.path.join(args.save_path, "epoch_415.ckpt")))
-        idx = 10
-
-        shutil.copyfile(f'{DATA_DIR}/training/image_2/{idx:06}.png', f'{args.viz_path}/{idx:06}.png')
-
-        with imageio.get_writer(os.path.join(args.viz_path, f'scene_{idx}.gif'), mode='I', duration=0.5) as writer:
-            for z in np.arange(10, -7, -1):
-                canvas = trainer.vis_scene(idx, translation=[0, 0, z])
-                canvas = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
-                writer.append_data(canvas)
-        writer.close()
-
-        with imageio.get_writer(os.path.join(args.viz_path, f'scene_rotate_{idx}.gif'), mode='I', duration=0.5) as writer:
-            for z in np.arange(0, 36+1)/36*2 * np.pi:
-                canvas = trainer.vis_scene(idx, rotation=z)
-                canvas = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
-                writer.append_data(canvas)
-        writer.close()
-        exit(0)
-
-    trainer.train()
+        trainer.vis_car(0)
+    else:
+        trainer.train()
 

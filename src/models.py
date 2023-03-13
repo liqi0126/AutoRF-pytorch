@@ -173,8 +173,6 @@ class PixelNeRFNet(torch.nn.Module):
         NS is number of input views
         :return (SB, B, 4) r g b sigma
         """
-
-
         rgb, sigma = self.decoder(xyz, viewdirs, latent)
 
         output_list = [torch.sigmoid(rgb), F.softplus(sigma)]
