@@ -81,6 +81,13 @@ def camera2object(pts, cam_to_obj_trans, cam_to_obj_rot, obj_size, pos=False):
     return pts_o
 
 
+def object2camera(pts, cam_to_obj_trans, cam_to_obj_rot, obj_size):
+    pts_w = pts * (obj_size / 2 + 1e-9)
+    pts_w -= cam_to_obj_trans
+    pts_w = torch.einsum('BNi,Bki ->BkN', torch.Tensor(Quaternion(cam_to_obj_rot.cpu().numpy()).rotation_matrix.T[None]).cuda(), pts_w)
+    return pts_w
+
+
 def ray_box_intersection(ray_o, ray_d, aabb_min=None, aabb_max=None):
     """Returns 1-D intersection point along each ray if a ray-box intersection is detected
     If box frames are scaled to vertices between [-1., -1., -1.] and [1., 1., 1.] aabbb is not necessary

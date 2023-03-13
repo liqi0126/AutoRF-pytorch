@@ -10,7 +10,6 @@ import torchvision.transforms as T
 
 import nuscenes_util
 
-
 DATA_DIR = '/home/liqi/data/nuscenes/nerf'
 
 img_transform = T.Compose([T.Resize((128, 128)), T.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
@@ -98,6 +97,67 @@ class NuScenes(torch.utils.data.Dataset):
             rgbs.append(rgb)
         return torch.stack(rgbs)
 
+    def __getscene__(self, idx, translation=None, rotation=None):
+        idx = self.filelist[idx]
+        data_path = f"{DATA_DIR}/{self.version}/{idx}"
+        with open(f'{data_path}/transforms.json', 'r') as f:
+            meta = json.load(f)
+
+        rgbs = []
+        for frame in meta['frames']:
+            rgb = Image.open(f"{data_path}/{frame['rgb_path']}")
+            rgb = T.ToTensor()(rgb)
+            rgb = img_transform(rgb)
+            rgbs.append(rgb)
+
+        rgbs = torch.stack(rgbs)
+
+        H = meta['frames'][0]['h']
+        W = meta['frames'][0]['w']
+        fl_x = meta['frames'][0]['fl_x']
+        fl_y = meta['frames'][0]['fl_y']
+        cx = meta['frames'][0]['cx']
+        cy = meta['frames'][0]['cy']
+        obj_size = meta['frames'][0]['obj_size']
+        cam_to_obj_trans = [0., 0., 0.]
+        cam_to_obj_rot = [1., 0., 0., 0.]
+
+        render_rays = nuscenes_util.gen_rays(
+            self.cam_pos, W, H,
+            torch.tensor([fl_x, fl_y]), 0, np.inf,
+            torch.tensor([cx, cy])
+        )[0].flatten(0, 1).numpy()
+
+        # manipulate 3d boxes
+        # if translation is not None:
+        #     objs = translate(objs, translation)
+        #
+        # if rotation is not None:
+        #     objs = rotate(objs, rotation)
+
+        # get rays from 3d boxes
+        ray_o = nuscenes_util.camera2object(render_rays[:, :3], cam_to_obj_trans, cam_to_obj_rot, obj_size, pos=True)
+        ray_d = nuscenes_util.camera2object(render_rays[:, 3:6], cam_to_obj_trans, cam_to_obj_rot, obj_size, pos=False)
+
+        z_in, z_out, intersect = nuscenes_util.ray_box_intersection(ray_o, ray_d)
+
+        bounds = np.ones((*ray_o.shape[:-1], 2)) * -1
+        bounds[intersect, 0] = z_in
+        bounds[intersect, 1] = z_out
+
+        scene_render_rays = np.concatenate([ray_o, ray_d, bounds], -1)
+        _, nc = scene_render_rays.shape
+        scene_render_rays = scene_render_rays.reshape(H, W, nc)
+
+        return H, W, \
+            torch.FloatTensor(scene_render_rays), \
+            rgbs, \
+            torch.from_numpy(intersect), \
+            torch.tensor(cam_to_obj_trans), \
+            torch.tensor(cam_to_obj_rot), \
+            torch.tensor(obj_size)
+
+
 def collate_lambda_train(batch, ray_batch_size=1024):
     imgs_bs, masks_bs, rays_bs, rgbs_bs = [], [], [], []
     len_bs = []
@@ -115,7 +175,7 @@ def collate_lambda_train(batch, ray_batch_size=1024):
         for img, mask, cam_ray, ray_cnt in zip(imgs, masks, cam_rays, ray_cnts):
             _, H, W = img.shape
 
-            pix_inds = torch.randint(0, H * W, (ray_cnt, ))
+            pix_inds = torch.randint(0, H * W, (ray_cnt,))
 
             rgb_gt = img.permute(1, 2, 0).flatten(0, 1)[pix_inds, ...]
             mask_gt = mask.permute(1, 2, 0).flatten(0, 1)[pix_inds, ...]
@@ -148,7 +208,6 @@ def collate_lambda_train(batch, ray_batch_size=1024):
     rays_bs = torch.stack(rays_bs, 1)
 
     return len_bs, imgs_bs, rays_bs, rgbs_bs, masks_bs
-
 
 
 if __name__ == '__main__':

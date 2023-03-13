@@ -139,16 +139,16 @@ class PixelNeRFTrainer():
 
 
     def vis_scene(self, idx, translation=None, rotation=None):
-        image, all_rays, rois, intersect, objs = self.test_dataset.__getscene__(idx, translation, rotation)
-
-        H, W, _ = image.shape
+        H, W, all_rays, rois, intersect, cam_to_obj_trans, cam_to_obj_rot, obj_size = self.test_dataset.__getscene__(idx, translation, rotation)
 
         self.net.eval()
 
         all_rays = all_rays.to(device)
         src_images = rois.to(device)
         intersect = intersect.to(device)
-        objs = objs.to(device)
+        cam_to_obj_trans = cam_to_obj_trans.to(device)
+        cam_to_obj_rot = cam_to_obj_rot.to(device)
+        obj_size = obj_size.to(device)
 
         all_rays = all_rays.view(H*W, -1, 8)
         valid_rays = all_rays[intersect, ...]
@@ -158,6 +158,7 @@ class PixelNeRFTrainer():
 
         with torch.no_grad():
             latents = self.net.encode(src_images)
+            latents = latents.mean(0)[None]
 
             rgb_map = list()
             for batch_rays in tqdm.tqdm(torch.split(valid_rays, self.args.batch_size)):
@@ -171,7 +172,7 @@ class PixelNeRFTrainer():
                 pts_o = rays[:, None, :3] + z_coarse[:, :, None] * rays[:, None, 3:6]
                 pts_o = pts_o.view(-1, Nb, Nk, 3).permute(1, 0, 2, 3).contiguous()
 
-                pts_w = kitti_util.object2world(pts_o.view(Nb, -1, 3), objs)
+                pts_w = nuscenes_util.object2camera(pts_o.view(Nb, -1, 3), cam_to_obj_trans, cam_to_obj_rot, obj_size)
                 pts_w = pts_w.view(Nb, -1, Nk, 3).permute(1, 0, 2, 3).contiguous()
 
                 z_world = torch.norm(pts_w, p=2, dim=-1).view_as(z_coarse)
@@ -230,9 +231,6 @@ class PixelNeRFTrainer():
         bounds [intersect, 1] = z_out
         all_rays = torch.cat([ray_o, ray_d, bounds])
 
-        for batch_rays in tqdm.tqdm(torch.split(valid_rays, self.args.batch_size)):
-
-
         self.net.eval()
         rgbs = rgbs.to(self.device)
         with torch.no_grad():
@@ -240,9 +238,7 @@ class PixelNeRFTrainer():
 
 
     def train(self):
-
         for epoch in range(self.num_epochs):
-
             batch = 0
             for data in self.train_data_loader:
                 losses = self.train_step(data)
@@ -282,7 +278,13 @@ if __name__ == "__main__":
     )
 
     if args.demo:
-        trainer.vis_car(0)
+        # trainer.net.load_state_dict(torch.load(os.path.join(args.save_path, "200.ckpt")))
+        with imageio.get_writer(os.path.join(args.save_path, 'car.gif'), mode='I', duration=0.5) as writer:
+            for z in np.arange(0, 36+1)/36*2 * np.pi:
+                canvas = trainer.vis_scene(0, rotation=z)
+                canvas = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+                writer.append_data(canvas)
+        writer.close()
     else:
         trainer.train()
 
