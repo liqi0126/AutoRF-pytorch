@@ -1,6 +1,7 @@
 import os
 import json
 import numpy as np
+import tqdm
 from PIL import Image
 from fire import Fire
 
@@ -15,7 +16,7 @@ from mmdet.apis import init_detector, inference_detector
 def main(
         # nuscene config
         version='v1.0-mini',
-        dataroot='/data1/liqi/nuscenes',
+        dataroot='/home/liqi/data/nuscenes',
         # mmdet config
         config_file='scripts/mmdet/configs/mask2former/mask2former_swin-l-p4-w12-384-in21k_lsj_16x1_100e_coco-panoptic.py',
         checkpoint_file='scripts/mmdet/checkpoints/mask2former_swin-l-p4-w12-384-in21k_lsj_16x1_100e_coco-panoptic_20220407_104949-d4919c44.pth',
@@ -24,7 +25,7 @@ def main(
 
     nusc = NuScenes(version=version, dataroot=dataroot, verbose=False)
 
-    for i, instance in enumerate(nusc.instance):
+    for i, instance in enumerate(tqdm.tqdm(nusc.instance)):
         category = nusc.get('category', instance['category_token'])['name']
         if 'car' not in category:
             continue
@@ -71,7 +72,7 @@ def main(
 
                 patch = img[bound[0, 1]:bound[1, 1], bound[0, 0]:bound[1, 0]]
                 mask = pan_mask[bound[0, 1]:bound[1, 1], bound[0, 0]:bound[1, 0]].astype('uint8') * 255
-                if (mask > 0).sum() < 150:
+                if (mask > 0).sum() < 80 * 80:
                     continue
 
                 if not os.path.exists(os.path.join(output_dir, "images")):
@@ -129,10 +130,13 @@ def main(
 
                 image_idx = image_idx + 1
 
-            if anno_record['next'] != '':
-                anno_record = nusc.get('sample_annotation', anno_record['next'])
-            else:
                 break
+            break
+
+            # if anno_record['next'] != '':
+                # anno_record = nusc.get('sample_annotation', anno_record['next'])
+            # else:
+                # break
 
         if image_idx == 0:
             continue
@@ -143,7 +147,6 @@ def main(
         with open(f'{output_dir}/transforms.json', 'w') as f:
             json.dump(meta, f, indent=4)
 
-        print(f'instance {i} processed')
 
 if __name__ == '__main__':
     Fire(main)

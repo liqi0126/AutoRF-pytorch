@@ -10,13 +10,13 @@ import torchvision.transforms as T
 
 import nuscenes_util
 
-DATA_DIR = '/data1/liqi/nuscenes/nerf'
+DATA_DIR = '/home/liqi/data/nuscenes/nerf'
 
 img_transform = T.Compose([T.Resize((128, 128)), T.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
 
 class NuScenes(torch.utils.data.Dataset):
-    def __init__(self, version='v1.0-mini'):
+    def __init__(self, version='v1.0-trainval'):
         super().__init__()
         self.version = version
         self.filelist = sorted(os.listdir(f"{DATA_DIR}/{version}"))

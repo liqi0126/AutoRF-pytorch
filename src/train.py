@@ -26,11 +26,12 @@ import tqdm
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", type=int, default=2)
+    parser.add_argument("--batch_size", type=int, default=12)
     parser.add_argument("--num_workers", type=int, default=8)
-    parser.add_argument("--ray_batch_size", type=int, default=2048*10)
+    parser.add_argument("--ray_batch_size", type=int, default=2048)
     parser.add_argument("--print_interval", type=int, default=5)
     parser.add_argument("--vis_interval", type=int, default=100)
+    parser.add_argument("--ckpt", type=str, default='200.ckpt')
     parser.add_argument("--ckpt_interval", default=5, help='checkpoint interval (in epochs)')
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--epochs", type=float, default=1000000)
@@ -251,6 +252,8 @@ class PixelNeRFTrainer():
                 if batch % self.args.print_interval == 0:
                     print("E", epoch, "B", batch, "loss", losses.item(),"lr", self.optim.param_groups[0]["lr"])
 
+                batch += 1
+
             if (epoch + 1) % self.args.ckpt_interval == 0:
                 torch.save(
                     self.net.state_dict(),
@@ -280,7 +283,7 @@ if __name__ == "__main__":
     )
 
     if args.demo:
-        trainer.net.load_state_dict(torch.load(os.path.join(args.save_path, "epoch_375.ckpt")))
+        trainer.net.load_state_dict(torch.load(os.path.join(args.save_path, args.ckpt)))
 
         canvas = trainer.vis_scene(8)
 
