@@ -15,7 +15,7 @@ from mmdet.apis import init_detector, inference_detector
 def main(
         # nuscene config
         version='v1.0-mini',
-        dataroot='/home/liqi/data/nuscenes',
+        dataroot='/data1/liqi/nuscenes',
         # mmdet config
         config_file='scripts/mmdet/configs/mask2former/mask2former_swin-l-p4-w12-384-in21k_lsj_16x1_100e_coco-panoptic.py',
         checkpoint_file='scripts/mmdet/checkpoints/mask2former_swin-l-p4-w12-384-in21k_lsj_16x1_100e_coco-panoptic_20220407_104949-d4919c44.pth',

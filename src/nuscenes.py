@@ -10,7 +10,7 @@ import torchvision.transforms as T
 
 import nuscenes_util
 
-DATA_DIR = '/home/liqi/data/nuscenes/nerf'
+DATA_DIR = '/data1/liqi/nuscenes/nerf'
 
 img_transform = T.Compose([T.Resize((128, 128)), T.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
@@ -119,13 +119,14 @@ class NuScenes(torch.utils.data.Dataset):
         cx = meta['frames'][0]['cx']
         cy = meta['frames'][0]['cy']
         obj_size = meta['frames'][0]['obj_size']
-        cam_to_obj_trans = [0., 0., 0.]
-        cam_to_obj_rot = [1., 0., 0., 0.]
+        cam_to_obj_trans = np.array([0., 0., -10.])
+        cam_to_obj_rot = np.array([1., 0., 0., 0.])
+        obj_size = np.array([3, 2, 2])
 
         render_rays = nuscenes_util.gen_rays(
-            self.cam_pos, W, H,
-            torch.tensor([fl_x, fl_y]), 0, np.inf,
-            torch.tensor([cx, cy])
+           self.cam_pos, W, H,
+           torch.tensor([fl_x, fl_y]), 0, np.inf,
+           torch.tensor([cx, cy])
         )[0].flatten(0, 1).numpy()
 
         # manipulate 3d boxes

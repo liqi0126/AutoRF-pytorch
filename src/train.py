@@ -13,6 +13,8 @@ from renderer import NeRFRenderer
 import torch
 import random
 
+from PIL import Image
+
 from nuscenes import NuScenes, collate_lambda_train
 import nuscenes_util
 
@@ -278,13 +280,18 @@ if __name__ == "__main__":
     )
 
     if args.demo:
-        # trainer.net.load_state_dict(torch.load(os.path.join(args.save_path, "200.ckpt")))
-        with imageio.get_writer(os.path.join(args.save_path, 'car.gif'), mode='I', duration=0.5) as writer:
-            for z in np.arange(0, 36+1)/36*2 * np.pi:
-                canvas = trainer.vis_scene(0, rotation=z)
-                canvas = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
-                writer.append_data(canvas)
-        writer.close()
+        trainer.net.load_state_dict(torch.load(os.path.join(args.save_path, "epoch_375.ckpt")))
+
+        canvas = trainer.vis_scene(8)
+
+        Image.fromarray(canvas).save('rgb.png')
+
+        #  with imageio.get_writer(os.path.join(args.save_path, 'car.gif'), mode='I', duration=0.5) as writer:
+        #      for z in np.arange(0, 36+1)/36*2 * np.pi:
+        #          canvas = trainer.vis_scene(0, rotation=z)
+        #          canvas = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+        #          writer.append_data(canvas)
+        #  writer.close()
     else:
         trainer.train()
 

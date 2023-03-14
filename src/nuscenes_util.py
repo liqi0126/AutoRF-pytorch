@@ -71,6 +71,7 @@ def unproj_map(width, height, f, c=None, device="cpu"):
 
 
 def camera2object(pts, cam_to_obj_trans, cam_to_obj_rot, obj_size, pos=False):
+    cam_to_obj_trans[1] -= obj_size[1] / 2
     pts_o = np.einsum('BNi,Bi ->BN', Quaternion(cam_to_obj_rot).rotation_matrix[None], pts)
     if pos:
         pts_o += np.array(cam_to_obj_trans)[:3]
