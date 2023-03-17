@@ -1,4 +1,5 @@
 import os
+import shutil
 import json
 import numpy as np
 import tqdm
@@ -25,14 +26,19 @@ def main(
 
     nusc = NuScenes(version=version, dataroot=dataroot, verbose=False)
 
+    # files = os.listdir(f"{dataroot}/nerf/{version}")
+    # max_idx = max([int(file[5:]) for file in files])
+
     for i, instance in enumerate(tqdm.tqdm(nusc.instance)):
+        # if i < max_idx:
+            # continue
+        output_dir = f"{dataroot}/nerf/{version}/inst_{i:06}"
+
         category = nusc.get('category', instance['category_token'])['name']
         if 'car' not in category:
             continue
 
         anno_record = nusc.get('sample_annotation', instance['first_annotation_token'])
-
-        output_dir = f"{dataroot}/nerf/{version}/inst_{i:06}"
 
         meta = {}
         frames = []
@@ -78,8 +84,11 @@ def main(
                 if not os.path.exists(os.path.join(output_dir, "images")):
                     os.makedirs(os.path.join(output_dir, "images"), exist_ok=True)
 
+                shutil.copy(data_path, f"{output_dir}/images/{image_idx:05}_original.jpg")
+                det_model.show_result(data_path, result, out_file=f"{output_dir}/images/{image_idx:05}_pano.jpg")
                 Image.fromarray(patch).save(f"{output_dir}/images/{image_idx:05}_patch.png")
                 Image.fromarray(mask).save(f"{output_dir}/images/{image_idx:05}_mask.png")
+
                 frame = {}
 
                 sample_data = nusc.get('sample_data', sample_record['data'][cam])
@@ -98,7 +107,9 @@ def main(
                 obj_matrix = transform_matrix(translation=obj_trans, rotation=obj_rot)
 
                 frame['rgb_path'] = f"images/{image_idx:05}_patch.png"
+                frame['original_img_path'] = f"images/{image_idx:05}_original.jpg"
                 frame['mask_path'] = f"images/{image_idx:05}_mask.png"
+                frame['pano_path'] = f"images/{image_idx:05}_pano.jpg"
                 mat = np.linalg.inv(obj_matrix) @ ego_matrix @ cam_matrix
                 # mat = mat @ np.array([[-1, 0, 0, 0],
                 #                       [0, 1, 0, 0],
@@ -130,13 +141,10 @@ def main(
 
                 image_idx = image_idx + 1
 
+            if anno_record['next'] != '':
+                anno_record = nusc.get('sample_annotation', anno_record['next'])
+            else:
                 break
-            break
-
-            # if anno_record['next'] != '':
-                # anno_record = nusc.get('sample_annotation', anno_record['next'])
-            # else:
-                # break
 
         if image_idx == 0:
             continue
