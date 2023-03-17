@@ -5,12 +5,14 @@ import json
 from PIL import Image
 from functools import partial
 
+from pyquaternion import Quaternion
+
 import torch
 import torchvision.transforms as T
 
 import nuscenes_util
 
-DATA_DIR = '/home/liqi/data/nuscenes/nerf'
+DATA_DIR = '/data1/liqi/nuscenes/nerf'
 
 img_transform = T.Compose([T.Resize((128, 128)), T.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
@@ -22,6 +24,7 @@ class NuScenes(torch.utils.data.Dataset):
         self.filelist = sorted(os.listdir(f"{DATA_DIR}/{version}"))
 
         self.cam_pos = torch.eye(4)[None, ...]
+        # self.cam_pos[:, 0, 0] = -1
         self.cam_pos[:, 1, 1] = -1
         self.cam_pos[:, 2, 2] = -1
 
@@ -40,6 +43,7 @@ class NuScenes(torch.utils.data.Dataset):
         for frame in meta['frames']:
             rgb = Image.open(f"{data_path}/{frame['rgb_path']}")
             mask = Image.open(f"{data_path}/{frame['mask_path']}")
+
             rgb = T.ToTensor()(rgb)
             mask = T.ToTensor()(mask)
 
@@ -53,9 +57,9 @@ class NuScenes(torch.utils.data.Dataset):
             x_max = frame['x_max']
             y_min = frame['y_min']
             y_max = frame['y_max']
-            obj_size = frame['obj_size']
-            cam_to_obj_trans = frame['cam_to_obj_trans']
-            cam_to_obj_rot = frame['cam_to_obj_rot']
+            obj_size = np.array(frame['obj_size'])
+            cam_to_obj_trans = np.array(frame['cam_to_obj_trans'])
+            cam_to_obj_rot = np.array(frame['cam_to_obj_rot'])
 
             render_rays = nuscenes_util.gen_rays(
                 self.cam_pos, w, h,
@@ -83,20 +87,6 @@ class NuScenes(torch.utils.data.Dataset):
 
         return rgbs, masks, cam_rays
 
-    def __getcar__(self, idx):
-        idx = self.filelist[idx]
-        data_path = f"{DATA_DIR}/{self.version}/{idx}"
-        with open(f'{data_path}/transforms.json', 'r') as f:
-            meta = json.load(f)
-
-        rgbs = []
-        for frame in meta['frames']:
-            rgb = Image.open(f"{data_path}/{frame['rgb_path']}")
-            rgb = T.ToTensor()(rgb)
-            rgb = img_transform(rgb)
-            rgbs.append(rgb)
-        return torch.stack(rgbs)
-
     def __getscene__(self, idx, translation=None, rotation=None):
         idx = self.filelist[idx]
         data_path = f"{DATA_DIR}/{self.version}/{idx}"
@@ -118,10 +108,23 @@ class NuScenes(torch.utils.data.Dataset):
         fl_y = meta['frames'][0]['fl_y']
         cx = meta['frames'][0]['cx']
         cy = meta['frames'][0]['cy']
+        # cam_to_obj_trans = meta['frames'][0]['cam_to_obj_trans']
+        # cam_to_obj_rot = meta['frames'][0]['cam_to_obj_rot']
+
+        angle = rotation * np.pi / 180
+
+        obj_to_cam_trans = [0, 2, 10]
+        obj_to_cam_rot = np.array([[np.cos(angle), 0, np.sin(angle)],
+                                   [0, 1, 0],
+                                   [-np.sin(angle), 0, np.cos(angle)]]) @ \
+                         np.array([[1, 0, 0],
+                                   [0, 0, -1],
+                                   [0, 1, 0]])
+        cam_to_obj_rot = obj_to_cam_rot.T
+        cam_to_obj_trans = -obj_to_cam_rot.T @ obj_to_cam_trans
+        cam_to_obj_rot = Quaternion(matrix=cam_to_obj_rot).elements
+
         obj_size = meta['frames'][0]['obj_size']
-        cam_to_obj_trans = np.array([0., 0., -10.])
-        cam_to_obj_rot = np.array([1., 0., 0., 0.])
-        obj_size = np.array([3, 2, 2])
 
         render_rays = nuscenes_util.gen_rays(
            self.cam_pos, W, H,
@@ -132,7 +135,7 @@ class NuScenes(torch.utils.data.Dataset):
         # manipulate 3d boxes
         # if translation is not None:
         #     objs = translate(objs, translation)
-        #
+
         # if rotation is not None:
         #     objs = rotate(objs, rotation)
 
@@ -216,8 +219,6 @@ if __name__ == '__main__':
 
     rgbs1, masks1, rays1 = nuscenes.__getitem__(1)
     rgbs2, masks2, rays2 = nuscenes.__getitem__(2)
-
-    # import ipdb; ipdb.set_trace()
 
     train_data_loader = torch.utils.data.DataLoader(
         nuscenes,

@@ -26,37 +26,22 @@ import tqdm
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", type=int, default=12)
+    parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--num_workers", type=int, default=8)
-    parser.add_argument("--ray_batch_size", type=int, default=2048)
+    parser.add_argument("--data_version", type=str, default='v1.0-mini')
+    parser.add_argument("--ray_batch_size", type=int, default=2048*10)
     parser.add_argument("--print_interval", type=int, default=5)
     parser.add_argument("--vis_interval", type=int, default=100)
     parser.add_argument("--ckpt", type=str, default='200.ckpt')
+    parser.add_argument("--test_idx", type=int, default=0)
     parser.add_argument("--ckpt_interval", default=5, help='checkpoint interval (in epochs)')
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--epochs", type=float, default=1000000)
-    parser.add_argument("--save_path", type=str, default='output_nuscenes')
-    parser.add_argument("--viz_path", type=str, default='viz_nuscenes')
+    parser.add_argument("--save_path", type=str, default='output/nuscenes')
     parser.add_argument("--demo", action="store_true")
     return parser.parse_args()
 
-def make_canvas(patches):
-    image = patches.pop(0)
-    banner = list()
-    hmax = max([p.shape[0] for p in patches]) + 10
-    for p in patches:
-        H, W, _ = p.shape
-        a = (hmax - H) // 2
-        b = hmax - H - a
-        pp = np.pad(p, ((a, b), (0, 0), (0, 0)))
-        banner.append(pp)
-    banner = np.concatenate(banner, 1)
-    imW, bnW = image.shape[1], banner.shape[1]
-    a = (bnW - imW) // 2
-    b = bnW - imW - a
-    image = np.pad(image, ((0, 0), (a, b), (0, 0)))
-    canvas = np.concatenate([image, banner], 0)
-    return canvas
+
 
 class PixelNeRFTrainer():
     def __init__(self, args, net, renderer, train_dataset, test_dataset, device):
@@ -78,7 +63,6 @@ class PixelNeRFTrainer():
         )
 
         os.makedirs(self.args.save_path, exist_ok = True)
-
 
         self.num_epochs = args.epochs
 
@@ -105,14 +89,18 @@ class PixelNeRFTrainer():
         render_dict = self.renderer(self.net, all_rays, latent)
 
         render_rgb = render_dict['rgb']
-
+        weights = render_dict['weights']
         intersect = render_dict['intersect']
 
+
+        pix_alpha = weights[intersect, ...].sum(-1, keepdim=True)
         render_rgb = render_rgb[intersect, ...]
         all_rgb_gt = all_rgb_gt[intersect, ...]
         all_mask_gt = all_mask_gt[intersect, ...]
 
-        loss = F.mse_loss(render_rgb, all_rgb_gt * all_mask_gt, reduction='mean')
+        # loss = -torch.log(all_mask_gt * (.5 - pix_alpha) + .5).mean()
+        loss = F.mse_loss(pix_alpha, all_mask_gt, reduction='mean')
+        loss += 10 * F.mse_loss(render_rgb, all_rgb_gt * all_mask_gt, reduction='mean')
         #loss = loss.sum() / all_mask_gt.sum()
 
         if is_train:
@@ -164,7 +152,7 @@ class PixelNeRFTrainer():
             latents = latents.mean(0)[None]
 
             rgb_map = list()
-            for batch_rays in tqdm.tqdm(torch.split(valid_rays, self.args.batch_size)):
+            for batch_rays in tqdm.tqdm(torch.split(valid_rays, 1024 * 64)):
 
                 rays = batch_rays.view(-1, 8)  # (N * B, 8)
                 z_coarse = self.renderer.sample_from_ray(rays)
@@ -205,40 +193,11 @@ class PixelNeRFTrainer():
 
             canvas = torch.zeros(H*W, 3).type_as(all_rays)
             canvas[intersect, :] = rgb_map
+
+
             canvas = (canvas.view(H, W, 3).cpu().numpy() * 255).astype(np.uint8)
 
             return canvas
-
-    def vis_car(self, idx):
-        rgbs = self.test_dataset.__getcar__(idx)
-
-        cam_pos = torch.eye(4)[None, ...]
-        cam_pos[:, 1, 1] = -1
-        cam_pos[:, 2, 2] = -1
-
-        render_rays = nuscenes_util.gen_rays(
-            cam_pos, 1600, 900,
-            torch.tensor([1250, 1250]), 0, np.inf,
-            torch.tensor([800, 450])
-        )[0].flatten(0,1).numpy()
-
-        ray_o = render_rays[:, :3]
-        ray_o[:, 0] = -1.
-        ray_o[:, 1] = -1.
-        ray_o[:, 2] = 1.
-        ray_d = render_rays[:, 3:6]
-
-        z_in, z_out, intersect = nuscenes_util.ray_box_intersection(ray_o, ray_d)
-        bounds =  np.ones((*ray_o.shape[:-1], 2)) * -1
-        bounds [intersect, 0] = z_in
-        bounds [intersect, 1] = z_out
-        all_rays = torch.cat([ray_o, ray_d, bounds])
-
-        self.net.eval()
-        rgbs = rgbs.to(self.device)
-        with torch.no_grad():
-            latent = self.net.encode(rgbs).mean(0)
-
 
     def train(self):
         for epoch in range(self.num_epochs):
@@ -261,6 +220,7 @@ class PixelNeRFTrainer():
                         self.args.save_path,"epoch_%d.ckpt" % (epoch + 1),
                     )
                 )
+
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
 
@@ -277,24 +237,19 @@ if __name__ == "__main__":
 
     trainer = PixelNeRFTrainer(
         args, net, renderer,
-        NuScenes(),
-        NuScenes(),
+        NuScenes(version=args.data_version),
+        NuScenes(version=args.data_version),
         device
     )
 
     if args.demo:
-        trainer.net.load_state_dict(torch.load(os.path.join(args.save_path, args.ckpt)))
-
-        canvas = trainer.vis_scene(8)
-
-        Image.fromarray(canvas).save('rgb.png')
-
-        #  with imageio.get_writer(os.path.join(args.save_path, 'car.gif'), mode='I', duration=0.5) as writer:
-        #      for z in np.arange(0, 36+1)/36*2 * np.pi:
-        #          canvas = trainer.vis_scene(0, rotation=z)
-        #          canvas = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
-        #          writer.append_data(canvas)
-        #  writer.close()
+        trainer.net.load_state_dict(torch.load(args.ckpt))
+        with imageio.get_writer(os.path.join(args.save_path, 'car.gif'), mode='I', duration=0.5) as writer:
+            for z in np.arange(0, 360, 20):
+                canvas = trainer.vis_scene(args.test_idx, rotation=z)
+                # canvas = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+                writer.append_data(canvas)
+        writer.close()
     else:
         trainer.train()
 

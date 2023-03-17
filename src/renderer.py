@@ -72,6 +72,7 @@ class NeRFRenderer(torch.nn.Module):
         )  # (B, K+1) = [1, a1, a2, ...]
 
         T = torch.cumprod(alphas_shifted, -1)  # (B)
+
         weights = alphas * T[:, :-1]  # (B, K)
 
         rgb_final = torch.sum(weights.unsqueeze(-1) * rgbs, -2)  # (B, 3)

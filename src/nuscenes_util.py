@@ -4,6 +4,8 @@ import numpy as np
 import torch
 
 from pyquaternion import Quaternion
+
+
 def gen_rays(poses, width, height, focal, z_near, z_far, c=None, ndc=False):
     """
     Generate camera rays
@@ -71,20 +73,24 @@ def unproj_map(width, height, f, c=None, device="cpu"):
 
 
 def camera2object(pts, cam_to_obj_trans, cam_to_obj_rot, obj_size, pos=False):
-    cam_to_obj_trans[1] -= obj_size[1] / 2
+    obj_size = np.array([obj_size[1], obj_size[0], obj_size[2]])
+
     pts_o = np.einsum('BNi,Bi ->BN', Quaternion(cam_to_obj_rot).rotation_matrix[None], pts)
     if pos:
         pts_o += np.array(cam_to_obj_trans)[:3]
-    pts_o = pts_o / (np.array(obj_size) / 2 + 1e-9)
+
+    pts_o /= (obj_size / 2)
     if not pos:
         pts_o = pts_o / np.linalg.norm(pts_o, axis=-1, keepdims=True)
-
     return pts_o
 
 
 def object2camera(pts, cam_to_obj_trans, cam_to_obj_rot, obj_size):
-    pts_w = pts * (obj_size / 2 + 1e-9)
-    pts_w -= cam_to_obj_trans
+    obj_size = torch.tensor([obj_size[1], obj_size[0], obj_size[2]]).cuda()
+
+    pts_w = pts
+    pts_w *= (obj_size / 2)
+    pts_w -= cam_to_obj_trans[:3]
     pts_w = torch.einsum('BNi,Bki ->BkN', torch.Tensor(Quaternion(cam_to_obj_rot.cpu().numpy()).rotation_matrix.T[None]).cuda(), pts_w)
     return pts_w
 
