@@ -13,6 +13,33 @@ from nuscenes.utils.geometry_utils import view_points, transform_matrix
 
 from mmdet.apis import init_detector, inference_detector
 
+CLASSES = [
+        'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train',
+        ' truck', 'boat', 'traffic light', 'fire hydrant', 'stop sign',
+        'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep',
+        'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella',
+        'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard',
+        'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard',
+        'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup', 'fork',
+        'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange',
+        'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair',
+        'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv',
+        'laptop', 'mouse', 'remote', 'keyboard', 'cell phone', 'microwave',
+        'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase',
+        'scissors', 'teddy bear', 'hair drier', 'toothbrush', 'banner',
+        'blanket', 'bridge', 'cardboard', 'counter', 'curtain', 'door-stuff',
+        'floor-wood', 'flower', 'fruit', 'gravel', 'house', 'light',
+        'mirror-stuff', 'net', 'pillow', 'platform', 'playingfield',
+        'railroad', 'river', 'road', 'roof', 'sand', 'sea', 'shelf', 'snow',
+        'stairs', 'tent', 'towel', 'wall-brick', 'wall-stone', 'wall-tile',
+        'wall-wood', 'water-other', 'window-blind', 'window-other',
+        'tree-merged', 'fence-merged', 'ceiling-merged', 'sky-other-merged',
+        'cabinet-merged', 'table-merged', 'floor-other-merged',
+        'pavement-merged', 'mountain-merged', 'grass-merged', 'dirt-merged',
+        'paper-merged', 'food-other-merged', 'building-other-merged',
+        'rock-merged', 'wall-other-merged', 'rug-merged'
+]
+
 
 def main(
         # nuscene config
@@ -26,30 +53,42 @@ def main(
 
     nusc = NuScenes(version=version, dataroot=dataroot, verbose=False)
 
-    # files = os.listdir(f"{dataroot}/nerf/{version}")
-    # max_idx = max([int(file[5:]) for file in files])
+    background_class = ['blanket', 'bridge', 'floor-wood', 'gravel', 'light', 'platform', 'playingfield',
+                        'railroad', 'river', 'road', 'sand', 'sea', 'shelf', 'snow', 'water-other', 'tree-merged', 'fence-merged',
+                        'ceiling-merged', 'sky-other-merged', 'floor-other-merged', 'pavement-merged', 'mountain-merged', 'grass-merged',
+                        'dirt-merged', 'building-other-merged', 'rock-merged']
+
+    background_indices = []
+    for cls in background_class:
+        background_indices.append(CLASSES.index(cls))
 
     for i, instance in enumerate(tqdm.tqdm(nusc.instance)):
-        # if i < max_idx:
-            # continue
-        output_dir = f"{dataroot}/nerf/{version}/inst_{i:06}"
-
         category = nusc.get('category', instance['category_token'])['name']
         if 'car' not in category:
             continue
 
         anno_record = nusc.get('sample_annotation', instance['first_annotation_token'])
 
+        output_dir = f"{dataroot}/nerf/{version}/inst_{i:06}"
+
         meta = {}
         frames = []
         image_idx = 0
         while True:
+            if anno_record['visibility_token'] != '4':
+                if anno_record['next'] != '':
+                    anno_record = nusc.get('sample_annotation', anno_record['next'])
+                    continue
+                else:
+                    break
+
             sample_record = nusc.get('sample', anno_record['sample_token'])
             cams = [key for key in sample_record['data'].keys() if 'CAM' in key]
 
             for cam in cams:
                 data_path, boxes, camera_intrinsic = nusc.get_sample_data(sample_record['data'][cam],
                                                                           selected_anntokens=[anno_record['token']])
+
                 if len(boxes) == 0:
                     continue
 
@@ -70,15 +109,19 @@ def main(
                 for x in np.unique(pan[bound_mask]):
                     if x > 1000 and x % 1000 in [2, 3, 4, 5]:
                         pan_pred.append(x)
+
                 if len(pan_pred) == 0:
                     continue
 
-                pan_mask = pan == pan_pred[np.argmax([(pan[bound_mask] == x).sum() for x in pan_pred])]
-                pan_mask[~bound_mask] = False
-
                 patch = img[bound[0, 1]:bound[1, 1], bound[0, 0]:bound[1, 0]]
-                mask = pan_mask[bound[0, 1]:bound[1, 1], bound[0, 0]:bound[1, 0]].astype('uint8') * 255
-                if (mask > 0).sum() < 80 * 80:
+
+                foreground_mask = pan == pan_pred[np.argmax([(pan[bound_mask] == x).sum() for x in pan_pred])]
+                foreground_mask = foreground_mask[bound[0, 1]:bound[1, 1], bound[0, 0]:bound[1, 0]].astype('uint8') * 255
+
+                background_mask = np.isin(pan % 1000, background_indices)
+                background_mask = background_mask[bound[0, 1]:bound[1, 1], bound[0, 0]:bound[1, 0]].astype('uint8') * 255
+
+                if (foreground_mask > 0).sum() < 80 * 80:
                     continue
 
                 if not os.path.exists(os.path.join(output_dir, "images")):
@@ -87,8 +130,8 @@ def main(
                 shutil.copy(data_path, f"{output_dir}/images/{image_idx:05}_original.jpg")
                 det_model.show_result(data_path, result, out_file=f"{output_dir}/images/{image_idx:05}_pano.jpg")
                 Image.fromarray(patch).save(f"{output_dir}/images/{image_idx:05}_patch.png")
-                Image.fromarray(mask).save(f"{output_dir}/images/{image_idx:05}_mask.png")
-
+                Image.fromarray(foreground_mask).save(f"{output_dir}/images/{image_idx:05}_mask.png")
+                Image.fromarray(background_mask).save(f"{output_dir}/images/{image_idx:05}_background.png")
                 frame = {}
 
                 sample_data = nusc.get('sample_data', sample_record['data'][cam])
@@ -106,10 +149,12 @@ def main(
                 obj_rot = Quaternion(anno_record['rotation'])
                 obj_matrix = transform_matrix(translation=obj_trans, rotation=obj_rot)
 
+                frame['original_img_path'] = f"images/{image_idx:05}_original.png"
                 frame['rgb_path'] = f"images/{image_idx:05}_patch.png"
                 frame['original_img_path'] = f"images/{image_idx:05}_original.jpg"
                 frame['mask_path'] = f"images/{image_idx:05}_mask.png"
                 frame['pano_path'] = f"images/{image_idx:05}_pano.jpg"
+                frame['background_path'] = f"images/{image_idx:05}_background.png"
                 mat = np.linalg.inv(obj_matrix) @ ego_matrix @ cam_matrix
                 # mat = mat @ np.array([[-1, 0, 0, 0],
                 #                       [0, 1, 0, 0],

@@ -491,8 +491,6 @@ def world2object(pts, obj, use_dir=False):
     pose_w = pose.copy()
     pose_w[:, 1] -= dim[:, 1] / 2
 
-    import ipdb; ipdb.set_trace()
-
     N_obj = pose.shape[0]
     N_pts = pts.shape[0]
 
