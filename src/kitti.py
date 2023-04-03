@@ -137,11 +137,18 @@ class KITTI(torch.utils.data.Dataset):
     def __getscene__(self, sid, manipulation=None):
         calib = kitti_util.Calibration(f'{DATA_DIR}/calib/%06d.txt' % sid)
         canvas = cv2.imread(f'{DATA_DIR}/image_2/%06d.png' % sid)
+        canvas = np.zeros((900, 1600, 3))
+
+        # render_rays = kitti_util.gen_rays(
+            # self.cam_pos, canvas.shape[1], canvas.shape[0],
+            # torch.tensor([calib.f_u, calib.f_v]), 0, np.inf,
+            # torch.tensor([calib.c_u, calib.c_v])
+        # )[0].flatten(0,1).numpy()
 
         render_rays = kitti_util.gen_rays(
-            self.cam_pos, canvas.shape[1], canvas.shape[0],
-            torch.tensor([calib.f_u, calib.f_v]), 0, np.inf,
-            torch.tensor([calib.c_u, calib.c_v])
+            self.cam_pos, 1600, 900,
+            torch.tensor([800, 800]), 0, np.inf,
+            torch.tensor([800, 450])
         )[0].flatten(0,1).numpy()
 
         objs = kitti_util.read_label(f'{DATA_DIR}/label_2/%06d.txt' % sid)
@@ -156,7 +163,6 @@ class KITTI(torch.utils.data.Dataset):
         #####################
         rois = list()
         for obj in objs:
-
             xmin, ymin, xmax, ymax = box3d_to_image_roi(obj, calib.P, canvas.shape)
 
             roi = canvas[int(ymin):int(ymax), int(xmin):int(xmax), :]
@@ -168,14 +174,10 @@ class KITTI(torch.utils.data.Dataset):
 
         rois = rois[None, 0]
         objs = objs[None, 0]
-        # objs[0, 0] = 1
-        # objs[0, 1] = 1
-        # objs[0, 1] = 1
-        objs[0, -1] = -1.57
-
-        # manipulate 3d boxes
-        if manipulation is not None:
-            objs = manipulate(objs, manipulation)
+        objs[0, -1] = 0
+        objs[0, 0] = 0
+        objs[0, 1] = 0
+        objs[0, 2] = 10
 
         # get rays from 3d boxes
         ray_o = kitti_util.world2object(np.zeros((len(render_rays), 3)), objs)
@@ -183,7 +185,7 @@ class KITTI(torch.utils.data.Dataset):
 
         z_in, z_out, intersect = kitti_util.ray_box_intersection(ray_o, ray_d)
 
-        bounds =  np.ones((*ray_o.shape[:-1], 2)) * -1
+        bounds = np.ones((*ray_o.shape[:-1], 2)) * -1
         bounds [intersect, 0] = z_in
         bounds [intersect, 1] = z_out
 

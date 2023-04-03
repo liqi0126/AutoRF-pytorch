@@ -127,6 +127,46 @@ class KITTI(torch.utils.data.Dataset):
         img = img_transform(img)
         return img
 
+    def __getviews__(self, idx):
+        import kitti_util
+        idx = self.filelist[idx]
+        img = cv2.imread(f'{DATA_DIR}/nerf/%s_patch.png' % idx)
+        img = img_transform(img)
+
+        render_rays = kitti_util.gen_rays(
+            self.cam_pos, H, canvas.shape[0],
+            torch.tensor([calib.f_u, calib.f_v]), 0, np.inf,
+            torch.tensor([calib.c_u, calib.c_v])
+        )[0].numpy()
+
+
+        test_data = list()
+        out_shape = list()
+        for ry in ry_list:
+            _,_,_,_,_,_,_, l, h, w, _ = [float(a) for a in obj]
+            xmin, ymin, xmax, ymax = box3d_to_image_roi(txyz + [l, h, w, ry], calib.P, canvas.shape)
+
+            cam_rays = render_rays[int(ymin):int(ymax), int(xmin):int(xmax), :].reshape(-1, 8)
+
+            objs = np.array(txyz + [l, h, w, ry]).reshape(1, 7)
+
+            ray_o = kitti_util.world2object(np.zeros((len(cam_rays), 3)), objs)
+            ray_d = kitti_util.world2object(cam_rays[:, 3:6], objs, use_dir=True)
+
+            z_in, z_out, intersect = kitti_util.ray_box_intersection(ray_o, ray_d)
+
+            bounds =  np.ones((*ray_o.shape[:-1], 2)) * -1
+            bounds [intersect, 0] = z_in
+            bounds [intersect, 1] = z_out
+
+            cam_rays = np.concatenate([ray_o, ray_d, bounds], -1)
+
+            out_shape.append( [int(ymax)-int(ymin), int(xmax)-int(xmin) ])
+
+            test_data.append( collate_lambda_test(img, cam_rays) )
+
+        return img, test_data, out_shape
+
 
 class Net(nn.Module):
     def __init__(self,
